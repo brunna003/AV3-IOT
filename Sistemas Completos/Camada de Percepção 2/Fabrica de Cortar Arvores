@@ -1,0 +1,142 @@
+#include <Wire.h>
+
+// Analógicos
+const int POT1 = 35;
+const int POT2 = 34;
+const int NTC = 33;
+
+// Digitais
+const int Buz = 16;
+const int ACEL_SCL = 22;
+const int ACEL_SDA = 21;
+const int Servo1 = 5;
+const int Servo2 = 18;
+const int LED_RED = 19; // LED vermelho
+const int LED_GREEN = 2; // LED verde (opcional)
+
+int valorPot1 = 0; // 0 - 4095
+int valorPot2 = 0;
+
+// Endereço do MPU6050
+const int MPU = 0x68;
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(POT1, INPUT);
+  pinMode(POT2, INPUT);
+  pinMode(NTC, INPUT);
+
+  pinMode(Servo1, OUTPUT);
+  pinMode(Buz, OUTPUT);
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+
+  // Inicializa MPU6050
+  Wire.begin(ACEL_SDA, ACEL_SCL);
+  Wire.beginTransmission(MPU);
+  Wire.write(0x6B); // registrador PWR_MGMT_1
+  Wire.write(0);    // acorda o MPU6050
+  Wire.endTransmission(true);
+
+  Serial.println("Inicializando....");
+}
+
+// --- Função para calcular temperatura aproximada do NTC ---
+float lerTemperaturaNTC() {
+  int adc = analogRead(NTC);
+  // Converte leitura ADC para resistência (exemplo para divisor de tensão)
+  float Vcc = 3.3;
+  float Rser = 10000.0; // resistor em série 10k
+  float Vntc = (adc / 4095.0) * Vcc;
+  float Rntc = (Rser * Vntc) / (Vcc - Vntc);
+
+  // Cálculo temperatura usando Beta simplificado:
+  float Beta = 3950;       // Beta do NTC
+  float R0 = 10000.0;      // resistência a 25°C
+  float T0 = 298.15;       // 25°C em Kelvin
+
+  float tempK = 1.0 / ((1.0 / T0) + (1.0 / Beta) * log(Rntc / R0));
+  float tempC = tempK - 273.15;
+
+  return tempC;
+}
+
+// --- Função para ler ângulos do MPU6050 ---
+void lerInclinacao(float &pitch, float &roll) {
+  Wire.beginTransmission(MPU);
+  Wire.write(0x3B); // registrador ACCEL_XOUT_H
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU, 6, true); // lê 6 bytes (X, Y, Z)
+
+  int16_t AcX = Wire.read() << 8 | Wire.read();
+  int16_t AcY = Wire.read() << 8 | Wire.read();
+  int16_t AcZ = Wire.read() << 8 | Wire.read();
+
+  float Ax = AcX / 16384.0;
+  float Ay = AcY / 16384.0;
+  float Az = AcZ / 16384.0;
+
+  // cálculos de pitch e roll
+  pitch = atan2(Ax, sqrt(Ay * Ay + Az * Az)) * 180.0 / PI;
+  roll  = atan2(Ay, sqrt(Ax * Ax + Az * Az)) * 180.0 / PI;
+}
+
+void loop() {
+  valorPot1 = analogRead(POT1);
+  valorPot2 = analogRead(POT2);
+
+  // lê temperatura do NTC
+  float temperatura = lerTemperaturaNTC();
+  Serial.print("Temperatura: ");
+  Serial.print(temperatura);
+  Serial.println(" *C");
+
+  // lê inclinação do MPU6050
+  float pitch, roll;
+  lerInclinacao(pitch, roll);
+  Serial.print("Pitch: "); Serial.print(pitch);
+  Serial.print(" Roll: "); Serial.println(roll);
+
+  // verificações de segurança
+  bool tempCritica = (temperatura < 20.0 || temperatura > 30.0);
+  // defina os limites de inclinação aceitáveis:
+  bool inclinacaoErrada = (abs(pitch) > 10.0 || abs(roll) > 10.0);
+
+  if (tempCritica) {
+    // Temperatura crítica!
+    digitalWrite(LED_RED, HIGH);
+    digitalWrite(Buz, HIGH);
+    digitalWrite(LED_GREEN, LOW);
+    Serial.println("Temperatura Crítica!");
+  } 
+  else if (inclinacaoErrada) {
+    // Madeira fora do eixo
+    digitalWrite(LED_RED, HIGH);
+    digitalWrite(Buz, HIGH);
+    digitalWrite(LED_GREEN, LOW);
+    Serial.println("Madeira fora do Eixo");
+  } 
+  else {
+    // Produção normal
+    digitalWrite(LED_RED, LOW);
+    digitalWrite(Buz, LOW);
+    digitalWrite(LED_GREEN, HIGH);
+
+    // movimenta servo
+    if (valorPot1 > 2000) {
+      // Posição 0°
+      digitalWrite(Servo1, HIGH);
+      delayMicroseconds(2000);
+      digitalWrite(Servo1, LOW);
+      delay(20);
+    } else {
+      digitalWrite(Servo1, HIGH);
+      delayMicroseconds(1000);
+      digitalWrite(Servo1, LOW);
+      delay(20);
+    }
+  }
+
+  delay(200); // leitura mais estável
+}
