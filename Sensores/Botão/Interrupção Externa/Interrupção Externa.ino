@@ -1,42 +1,47 @@
-#define Pino_DHT  x
-#define Tipo_DHT  DHT11
-#define buzzer    y   // PINO DO BUZZER (substituir y pelo pino real)
+const int LED = 16;
+const int BUTTON = 5;
 
-DHT Nome_SensorDHT(Pino_DHT, Tipo_DHT);
+volatile bool interrupted = false;
+bool ledStopped = false;
+unsigned long lastInterruptTime = 0;
+const unsigned long debounceDelay = 200; // Tempo de debounce em milissegundos
+
+void IRAM_ATTR ISR() {
+  // Verifica se passou tempo suficiente desde a última interrupção
+  if (millis() - lastInterruptTime > debounceDelay) {
+    interrupted = true;
+    lastInterruptTime = millis();
+  }
+}
 
 void setup() {
   Serial.begin(115200);
-  Nome_SensorDHT.begin();
-  pinMode(buzzer, OUTPUT);
+  pinMode(LED, OUTPUT);
+  pinMode(BUTTON, INPUT);
+  attachInterrupt(digitalPinToInterrupt(BUTTON), ISR, FALLING);
 }
 
 void loop() {
-
-  float Nome_variavel_temperatura = Nome_SensorDHT.readTemperature();
-  float Nome_variavel_umidade     = Nome_SensorDHT.readHumidity();
-
-  Serial.print("Temp: ");
-  Serial.print(Nome_variavel_temperatura);
-  Serial.print("  Umidade: ");
-  Serial.println(Nome_variavel_umidade);
-
-  // --------------------------------------------------------
-  //   ALERTA DE TEMPERATURA
-  // --------------------------------------------------------
-  if (Nome_variavel_temperatura > 30 || Nome_variavel_temperatura < 0) {
+  if (interrupted) {
+    interrupted = false;
     
-    Serial.println("⚠ TEMPERATURA CRÍTICA! BUZZER ATIVADO!");
-
-    // Bipe intermitente
-    tone(buzzer, 1000);  // apita a 1000 Hz
-    delay(200);
-    noTone(buzzer);
-    delay(200);
-
-  } else {
-    // Temperatura normal → buzzer fica desligado
-    noTone(buzzer);
+    if (!ledStopped) {
+      // Primeiro pressionamento - para o LED
+      ledStopped = true;
+      digitalWrite(LED, LOW);
+      Serial.println("LED interrompido! Pressione o botão novamente para retomar.");
+    } else {
+      // Segundo pressionamento - retoma o LED
+      ledStopped = false;
+      Serial.println("LED retomado!");
+    }
   }
 
-  delay(1000);
+  if (!ledStopped) {
+    // Comportamento normal do LED (piscando)
+    digitalWrite(LED, HIGH);
+    delay(500);
+    digitalWrite(LED, LOW);
+    delay(500);
+  }
 }
