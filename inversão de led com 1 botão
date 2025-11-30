@@ -1,0 +1,74 @@
+// Pinos
+#define BUTTON_PIN 7         // Pino do botão (pode ser alterado)
+#define LED1_PIN 4           // Pino do primeiro LED
+#define LED2_PIN 5           // Pino do segundo LED (adicione outro pino)
+
+// Variáveis para debounce
+volatile unsigned long lastInterruptTime = 0;
+const unsigned long debounceDelay = 200;  // Tempo de debounce em ms
+
+// Variáveis de estado
+volatile bool buttonPressed = false;
+volatile int ledState = 0;   // 0 = LED1, 1 = LED2
+
+// Função da interrupção com debounce
+void IRAM_ATTR handleButtonInterrupt() {
+  unsigned long interruptTime = millis();
+  
+  // Verifica se passou tempo suficiente desde a última interrupção
+  if (interruptTime - lastInterruptTime > debounceDelay) {
+    buttonPressed = true;
+    Serial.println("Botão pressionado! (com debounce)");
+  }
+  lastInterruptTime = interruptTime;
+}
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Iniciando ESP32-S3 com Botão e LEDs Alternados");
+  
+  // Configuração dos pinos
+  pinMode(BUTTON_PIN, INPUT_PULLUP);  // Botão com resistor pull-up interno
+  pinMode(LED1_PIN, OUTPUT);          // LED1 como saída
+  pinMode(LED2_PIN, OUTPUT);          // LED2 como saída
+  
+  // Inicialmente apaga ambos os LEDs
+  digitalWrite(LED1_PIN, LOW);
+  digitalWrite(LED2_PIN, LOW);
+  
+  // Configuração da interrupção externa
+  // FALLING: quando o botão vai de HIGH para LOW (quando pressionado)
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), handleButtonInterrupt, FALLING);
+  
+  Serial.println("Sistema pronto! Pressione o botão para alternar entre os LEDs...");
+  Serial.println("LED1: Pino " + String(LED1_PIN));
+  Serial.println("LED2: Pino " + String(LED2_PIN));
+  Serial.println("=====================================");
+}
+
+void loop() {
+  // Processa o pressionamento do botão (se detectado na interrupção)
+  if (buttonPressed) {
+    buttonPressed = false;
+    
+    // Alterna o estado do LED
+    ledState = !ledState;  // Inverte o estado (0 vira 1, 1 vira 0)
+    
+    // Acende o LED correspondente e apaga o outro
+    if (ledState == 0) {
+      digitalWrite(LED1_PIN, HIGH);  // Acende LED1
+      digitalWrite(LED2_PIN, LOW);   // Apaga LED2
+      Serial.println("LED1 aceso");
+    } else {
+      digitalWrite(LED1_PIN, LOW);   // Apaga LED1
+      digitalWrite(LED2_PIN, HIGH);  // Acende LED2
+      Serial.println("LED2 aceso");
+    }
+    
+    Serial.print("Estado atual: ");
+    Serial.println(ledState == 0 ? "LED1" : "LED2");
+  }
+  
+  // Outras tarefas podem ser executadas aqui
+  // delay(100); // Não é necessário pois usamos interrupção
+}
