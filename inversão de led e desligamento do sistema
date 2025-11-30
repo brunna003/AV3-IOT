@@ -1,0 +1,81 @@
+#include "esp_sleep.h"
+
+// Pinos
+#define BUTTON_PIN 7
+#define SHUTDOWN_BUTTON_PIN 6
+#define LED1_PIN 4
+#define LED2_PIN 5
+
+volatile bool buttonPressed = false;
+volatile bool shutdownPressed = false;
+
+unsigned long lastButtonTime = 0;
+unsigned long lastShutdownTime = 0;
+const unsigned long debounceDelay = 200;
+
+volatile int ledState = 0;
+
+// Interrupção do botão principal
+void IRAM_ATTR handleButtonInterrupt() {
+  unsigned long now = millis();
+  if (now - lastButtonTime > debounceDelay) {
+    buttonPressed = true;
+    lastButtonTime = now;
+  }
+}
+
+// Interrupção para desligar (deep sleep)
+void IRAM_ATTR handleShutdownInterrupt() {
+  unsigned long now = millis();
+  if (now - lastShutdownTime > debounceDelay) {
+    shutdownPressed = true;
+    lastShutdownTime = now;
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(SHUTDOWN_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(LED1_PIN, OUTPUT);
+  pinMode(LED2_PIN, OUTPUT);
+
+  attachInterrupt(BUTTON_PIN, handleButtonInterrupt, FALLING);
+  attachInterrupt(SHUTDOWN_BUTTON_PIN, handleShutdownInterrupt, FALLING);
+
+  Serial.println("Sistema iniciado");
+}
+
+void loop() {
+
+  // === BOTÃO DE DESLIGAR → DEEP SLEEP ===
+  if (shutdownPressed) {
+    shutdownPressed = false;
+
+    Serial.println("Entrando em DEEP SLEEP...");
+    delay(100);
+
+    // Apaga tudo
+    digitalWrite(LED1_PIN, LOW);
+    digitalWrite(LED2_PIN, LOW);
+
+    // Configura o botão de desligamento para acordar o ESP32-S3
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)SHUTDOWN_BUTTON_PIN, 0);  
+    esp_deep_sleep_start(); // <<< AQUI DESLIGA DE VERDADE
+  }
+
+  // === BOTÃO NORMAL ===
+  if (buttonPressed) {
+    buttonPressed = false;
+
+    ledState = !ledState;
+
+    digitalWrite(LED1_PIN, ledState == 0);
+    digitalWrite(LED2_PIN, ledState == 1);
+
+    Serial.println(ledState == 0 ? "LED1" : "LED2");
+  }
+
+  delay(10);
+}
