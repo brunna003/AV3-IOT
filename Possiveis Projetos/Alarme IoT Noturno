@@ -1,0 +1,209 @@
+/*
+O QUE MUDAR:
+- SSID do WiFi
+- SENHA do WiFi
+- MQTT_SERVER (IP do broker)
+- MQTT_TOPIC (tópico principal)
+
+BOTÃO:
+- Apenas liga/desliga todo o sistema pelo interrupt (13).
+
+FUNCIONAMENTO:
+- Sistema ligado? Lê LDR e detecta luz → dispara.
+- Publica no MQTT:
+      estado/sistema   → ON / OFF
+      estado/alarme    → ALARM / NORMAL
+*/
+
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+const char* SSID = "SEU_WIFI";
+const char* PASS = "SUA_SENHA";
+const char* MQTT_SERVER = "192.168.0.10";
+const char* MQTT_TOPIC_SYS = "alarme/sistema";
+const char* MQTT_TOPIC_ALARM = "alarme/estado";
+
+// --- hardware ---
+const int LDR_PIN = 34;
+const int LED_PIN = 2;
+const int BUZZER_PIN = 15;
+const int BUTTON_PIN = 13;
+
+// --- estado ---
+volatile bool sistemaLigado = true;
+volatile unsigned long lastInterrupt = 0;
+const unsigned long debounceDelay = 200;
+
+// --- MQTT ---
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+void IRAM_ATTR toggleSistema() {
+  unsigned long agora = millis();
+  if (agora - lastInterrupt > debounceDelay) {
+    sistemaLigado = !sistemaLigado;
+    lastInterrupt = agora;
+  }
+}
+
+void conectaWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(SSID, PASS);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(300);
+  }
+}
+
+void conectaMQTT() {
+  while (!client.connected()) {
+    client.connect("esp32_alarme");
+    delay(500);
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), toggleSistema, FALLING);
+
+  conectaWiFi();
+  client.setServer(MQTT_SERVER, 1883);
+  conectaMQTT();
+
+  client.publish(MQTT_TOPIC_SYS, "ON");
+}
+
+void loop() {
+  if (!client.connected()) conectaMQTT();
+  client.loop();
+
+  if (!sistemaLigado) {
+    digitalWrite(LED_PIN, LOW);
+    digitalWrite(BUZZER_PIN, LOW);
+    client.publish(MQTT_TOPIC_SYS, "OFF");
+    return;
+  } else {
+    client.publish(MQTT_TOPIC_SYS, "ON");
+  }
+
+  int luz = analogRead(LDR_PIN);
+
+  if (luz > 3000) {
+    digitalWrite(LED_PIN, HIGH);
+    digitalWrite(BUZZER_PIN, HIGH);
+    client.publish(MQTT_TOPIC_ALARM, "ALARM");
+  } else {
+    digitalWrite(LED_PIN, LOW);
+    digitalWrite(BUZZER_PIN, LOW);
+    client.publish(MQTT_TOPIC_ALARM, "NORMAL");
+  }
+
+  delay(50);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//-----------------------------------------------------------VERSÃO SEM WIFI 
+/*
+INSTRUÇÕES:
+1) Troque os pinos abaixo se quiser:
+      LDR_PIN
+      LED_PIN
+      BUZZER_PIN
+      BUTTON_PIN (precisa ser um pino de interrupção)
+2) O botão alterna entre LIGADO/DESLIGADO usando interrupção.
+3) O sistema *só funciona* quando está ligado.
+4) Acende LED + buzzer quando detectar luz inesperada no escuro.
+*/
+
+const int LDR_PIN     = 34;  // entrada analógica
+const int LED_PIN     = 2;
+const int BUZZER_PIN  = 15;
+const int BUTTON_PIN  = 5;
+
+// variáveis de sistema
+volatile bool sistemaLigado = true;       // começa ligado
+volatile unsigned long lastPress = 0;     // debounce
+const unsigned long debounceDelay = 300;  // ms
+
+// --- interrupção: alterna o estado do sistema ---
+void IRAM_ATTR toggleSistema() {
+  unsigned long agora = millis();
+  if (agora - lastPress > debounceDelay) {
+    sistemaLigado = !sistemaLigado; // troca de estado
+    lastPress = agora;
+  }
+}
+
+void setup() {
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), toggleSistema, FALLING);
+
+  Serial.begin(115200);
+}
+
+void loop() {
+
+  if (!sistemaLigado) {
+    // sistema desligado → deixa tudo quieto
+    digitalWrite(LED_PIN, LOW);
+    digitalWrite(BUZZER_PIN, LOW);
+    return;
+  }
+
+  // --- leitura do LDR ---
+  int ldrValue = analogRead(LDR_PIN);
+
+  // define um limite de "escuro" (ajuste se quiser)
+  bool estaEscuro = ldrValue < 1500;
+
+  // se estiver escuro, mas de repente aparecer luz → alarme
+  if (!estaEscuro) {
+    digitalWrite(LED_PIN, HIGH);
+    digitalWrite(BUZZER_PIN, HIGH);
+  } else {
+    digitalWrite(LED_PIN, LOW);
+    digitalWrite(BUZZER_PIN, LOW);
+  }
+
+  delay(50);
+}
