@@ -1,0 +1,111 @@
+#include "esp_sleep.h"
+
+// === Pinos ===
+#define BUTTON_PIN 7
+#define SHUTDOWN_BUTTON_PIN 6
+#define LED1_PIN 4
+#define LED2_PIN 5
+
+// Ultrassom
+#define TRIG_PIN 2
+#define ECHO_PIN 3
+
+volatile bool buttonPressed = false;
+volatile bool shutdownPressed = false;
+
+unsigned long lastButtonTime = 0;
+unsigned long lastShutdownTime = 0;
+const unsigned long debounceDelay = 200;
+
+volatile int ledState = 0;
+
+// === Interrupção do botão principal ===
+void IRAM_ATTR handleButtonInterrupt() {
+  unsigned long now = millis();
+  if (now - lastButtonTime > debounceDelay) {
+    buttonPressed = true;
+    lastButtonTime = now;
+  }
+}
+
+// === Interrupção para desligar (deep sleep) ===
+void IRAM_ATTR handleShutdownInterrupt() {
+  unsigned long now = millis();
+  if (now - lastShutdownTime > debounceDelay) {
+    shutdownPressed = true;
+    lastShutdownTime = now;
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(SHUTDOWN_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(LED1_PIN, OUTPUT);
+  pinMode(LED2_PIN, OUTPUT);
+
+  // Ultrassom
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  attachInterrupt(BUTTON_PIN, handleButtonInterrupt, FALLING);
+  attachInterrupt(SHUTDOWN_BUTTON_PIN, handleShutdownInterrupt, FALLING);
+
+  Serial.println("Sistema iniciado");
+}
+
+// === Função para medir distância ===
+long medirDistancia() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duracao = pulseIn(ECHO_PIN, HIGH, 25000); // timeout 25ms
+  long distancia = duracao * 0.034 / 2; // velocidade do som (cm/us)
+  return distancia;
+}
+
+void loop() {
+
+  // === BOTÃO DE DESLIGAR → DEEP SLEEP ===
+  if (shutdownPressed) {
+    shutdownPressed = false;
+
+    Serial.println("Entrando em DEEP SLEEP...");
+    delay(100);
+
+    // Apaga tudo
+    digitalWrite(LED1_PIN, LOW);
+    digitalWrite(LED2_PIN, LOW);
+    digitalWrite(TRIG_PIN, LOW);  // Ultrassom off
+
+    // Configura botão como fonte de despertar
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)SHUTDOWN_BUTTON_PIN, 0);
+    esp_deep_sleep_start(); // <<< Desliga de verdade
+  }
+
+  // === BOTÃO NORMAL → alterna LEDs ===
+  if (buttonPressed) {
+    buttonPressed = false;
+
+    ledState = !ledState;
+
+    digitalWrite(LED1_PIN, ledState == 0);
+    digitalWrite(LED2_PIN, ledState == 1);
+
+    Serial.println(ledState == 0 ? "LED1" : "LED2");
+  }
+
+  // === Leitura do ultrassom (a cada ciclo) ===
+  long distancia = medirDistancia();
+  if (distancia > 0 && distancia < 400) {
+    Serial.print("Distancia: ");
+    Serial.print(distancia);
+    Serial.println(" cm");
+  }
+
+  delay(200);
+}
